@@ -8,11 +8,13 @@ import sinacodes.spingands3demo.DTO.ImageMetadata;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
@@ -31,6 +33,9 @@ public class ImageService {
 
    @Value("${aws.s3.bucket}")
    private String bucket;
+
+   @Value("${aws.s3.bucket}")
+   private String defaultBucket;
 
    @Value("${aws.s3.endpoint}")
    private String endpoint;
@@ -62,10 +67,16 @@ public class ImageService {
       }
    }
 
-   public String uploadImage(MultipartFile file) {
-      String extension = "";
-      String originalName = file.getOriginalFilename();
+   private String resolveBucket(String bucketParam) {
+      return (bucketParam != null && !bucketParam.isBlank()) ? bucketParam : defaultBucket;
+   }
 
+
+   public String uploadImage(MultipartFile file, String bucketOverride) {
+      String bucket = resolveBucket(bucketOverride);
+      String extension = "";
+
+      String originalName = file.getOriginalFilename();
       if (originalName != null && originalName.contains(".")) {
          extension = originalName.substring(originalName.lastIndexOf('.'));
       }
@@ -79,8 +90,7 @@ public class ImageService {
             .build();
 
       try {
-         s3Client.putObject(putRequest, RequestBody.fromInputStream(file.getInputStream(),
-               file.getSize()));
+         s3Client.putObject(putRequest, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
       } catch (IOException e) {
          throw new RuntimeException("Failed to upload image", e);
       }
@@ -88,7 +98,9 @@ public class ImageService {
       return key;
    }
 
-   public byte[] getImage(String key) {
+
+   public byte[] getImage(String key, String bucketOverride) {
+      String bucket = resolveBucket(bucketOverride);
       GetObjectRequest getRequest = GetObjectRequest.builder()
             .bucket(bucket)
             .key(key)
@@ -101,21 +113,8 @@ public class ImageService {
       }
    }
 
-   public void updateImage(MultipartFile file, String key) {
-      PutObjectRequest putRequest = PutObjectRequest.builder()
-            .bucket(bucket)
-            .key(key)
-            .contentType(file.getContentType())
-            .build();
-
-      try {
-         s3Client.putObject(putRequest, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
-      } catch (IOException e) {
-         throw new RuntimeException("Failed to update image", e);
-      }
-   }
-
-   public void deleteImage(String key) {
+   public void deleteImage(String key, String bucketOverride) {
+      String bucket = resolveBucket(bucketOverride);
       DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
             .bucket(bucket)
             .key(key)
@@ -124,7 +123,8 @@ public class ImageService {
       s3Client.deleteObject(deleteRequest);
    }
 
-   public List<ImageMetadata> listImages() {
+   public List<ImageMetadata> listImages(String bucketOverride) {
+      String bucket = resolveBucket(bucketOverride);
       ListObjectsV2Request listRequest = ListObjectsV2Request.builder()
             .bucket(bucket)
             .build();
@@ -134,12 +134,34 @@ public class ImageService {
       return response.contents().stream()
             .map(s3Object -> new ImageMetadata(
                   s3Object.key(),
-                  getImageUrl(s3Object.key())
+                  getImageUrl(s3Object.key(), bucket)
             ))
             .collect(Collectors.toList());
    }
 
-   public String getImageUrl(String key) {
+   public String getImageUrl(String key, String bucketOverride) {
+      String bucket = resolveBucket(bucketOverride);
       return String.format("%s/%s/%s", endpoint, bucket, key);
    }
+
+   public ImageMetadata getMetadataFromUrl(String url, String bucketOverride) {
+      String bucket = resolveBucket(bucketOverride);
+      // Remove prefix like: http://localhost:4566/my-images/
+      String prefix = String.format("%s/%s/", endpoint, bucket);
+
+      if (!url.startsWith(prefix)) {
+         throw new IllegalArgumentException("URL does not match expected S3 format");
+      }
+
+      String key = url.substring(prefix.length());
+      return new ImageMetadata(key, url);
+   }
+
+   public List<String> listBuckets() {
+      ListBucketsResponse response = s3Client.listBuckets();
+      return response.buckets().stream()
+            .map(Bucket::name)
+            .collect(Collectors.toList());
+   }
+
 }

@@ -53,7 +53,7 @@ class ImageServiceTest {
       when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
             .thenReturn(mockResponse);
 
-      String key = imageService.uploadImage(file);
+      String key = imageService.uploadImage(file, "test-bucket");
 
       assertTrue(key.endsWith(".jpg"));
       assertDoesNotThrow(() -> UUID.fromString(key.substring(0, key.indexOf('.'))));
@@ -70,33 +70,20 @@ class ImageServiceTest {
 
       when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(mockStream);
 
-      byte[] result = imageService.getImage("abc.jpg");
+      byte[] result = imageService.getImage("abc.jpg", "test-bucket");
 
       assertArrayEquals(mockBytes, result);
    }
 
    @Test
-   void updateImage_shouldCallPutObject() throws IOException {
-      MockMultipartFile file = new MockMultipartFile(
-            "file", "updated.jpg", "image/jpeg", "new-image".getBytes()
-      );
-
-      when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class))).thenReturn(PutObjectResponse.builder().build());
-
-      imageService.updateImage(file, "abc.jpg");
-
-      verify(s3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
-   }
-
-   @Test
    void deleteImage_shouldCallDeleteObject() {
-      imageService.deleteImage("abc.jpg");
+      imageService.deleteImage("abc.jpg",  "test-bucket");
       verify(s3Client).deleteObject(any(DeleteObjectRequest.class));
    }
 
    @Test
    void getImageUrl_shouldReturnCorrectUrl() {
-      String url = imageService.getImageUrl("abc.jpg");
+      String url = imageService.getImageUrl("abc.jpg",  "test-bucket");
       assertEquals("http://localhost:4566/test-bucket/abc.jpg", url);
    }
 
@@ -108,7 +95,7 @@ class ImageServiceTest {
       when(s3Client.listObjectsV2(any(ListObjectsV2Request.class)))
             .thenReturn(ListObjectsV2Response.builder().contents(obj1, obj2).build());
 
-      List<ImageMetadata> result = imageService.listImages();
+      List<ImageMetadata> result = imageService.listImages("test-bucket");
 
       assertEquals(2, result.size());
       assertEquals("a.jpg", result.get(0).getKey());
