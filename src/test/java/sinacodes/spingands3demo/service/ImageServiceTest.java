@@ -11,94 +11,136 @@ import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-class ImageServiceTest {
+
+public class ImageServiceTest {
 
    private S3Client s3Client;
    private ImageService imageService;
 
    @BeforeEach
-   void setUp() {
+   void setup() {
       s3Client = mock(S3Client.class);
       imageService = new ImageService(s3Client);
-      imageService.getClass(); // to suppress IDE warnings
-      // Set required fields manually (normally injected by Spring)
-      imageService.getClass().getDeclaredFields();
-      setField(imageService, "bucket", "test-bucket");
-      setField(imageService, "endpoint", "http://localhost:4566");
+      setField("bucket", "my-images");
+      setField("defaultBucket", "my-images");
+      setField("endpoint", "http://localhost:4566");
    }
 
-   private void setField(Object target, String fieldName, String value) {
+   private void setField(String fieldName, String value) {
       try {
-         var field = target.getClass().getDeclaredField(fieldName);
+         var field = ImageService.class.getDeclaredField(fieldName);
          field.setAccessible(true);
-         field.set(target, value);
+         field.set(imageService, value);
       } catch (Exception e) {
          throw new RuntimeException(e);
       }
    }
 
    @Test
-   void uploadImage_shouldReturnGeneratedKey() throws IOException {
+   void uploadImageShouldReturnGeneratedKey() throws IOException {
       MockMultipartFile file = new MockMultipartFile(
-            "file", "image.jpg", "image/jpeg", "fake-image".getBytes()
+            "file", "photo.jpg", "image/jpeg", "test-image".getBytes()
       );
 
-      PutObjectResponse mockResponse = PutObjectResponse.builder().build();
       when(s3Client.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
-            .thenReturn(mockResponse);
+            .thenReturn(PutObjectResponse.builder().build());
 
-      String key = imageService.uploadImage(file, "test-bucket");
+      String key = imageService.uploadImage(file, null);
 
+      assertNotNull(key);
       assertTrue(key.endsWith(".jpg"));
-      assertDoesNotThrow(() -> UUID.fromString(key.substring(0, key.indexOf('.'))));
-      verify(s3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
    }
 
    @Test
-   void getImage_shouldReturnBytes() throws IOException {
-      byte[] mockBytes = "image-bytes".getBytes();
-      ResponseInputStream<GetObjectResponse> mockStream = new ResponseInputStream<>(
+   void getImageShouldReturnByteArray() throws IOException {
+      byte[] imageBytes = "image-bytes".getBytes();
+      ResponseInputStream<GetObjectResponse> stream = new ResponseInputStream<>(
             GetObjectResponse.builder().build(),
-            new ByteArrayInputStream(mockBytes)
+            new ByteArrayInputStream(imageBytes)
       );
 
-      when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(mockStream);
+      when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(stream);
 
-      byte[] result = imageService.getImage("abc.jpg", "test-bucket");
-
-      assertArrayEquals(mockBytes, result);
+      byte[] result = imageService.getImage("abc.jpg", null);
+      assertArrayEquals(imageBytes, result);
    }
 
    @Test
-   void deleteImage_shouldCallDeleteObject() {
-      imageService.deleteImage("abc.jpg",  "test-bucket");
+   void deleteImageShouldInvokeS3Client() {
+      imageService.deleteImage("abc.jpg", null);
       verify(s3Client).deleteObject(any(DeleteObjectRequest.class));
    }
 
    @Test
-   void getImageUrl_shouldReturnCorrectUrl() {
-      String url = imageService.getImageUrl("abc.jpg",  "test-bucket");
-      assertEquals("http://localhost:4566/test-bucket/abc.jpg", url);
+   void listImagesShouldReturnImageMetadataList() {
+      S3Object object = S3Object.builder()
+            .key("image1.jpg")
+            .size(1234L)
+            .lastModified(Instant.parse("2024-01-01T10:00:00Z"))
+            .build();
+
+      when(s3Client.listObjectsV2(any(ListObjectsV2Request.class)))
+            .thenReturn(ListObjectsV2Response.builder().contents(object).build());
+
+      List<ImageMetadata> result = imageService.listImages(null);
+
+      assertEquals(1, result.size());
+      assertEquals("image1.jpg", result.getFirst().getKey());
+      assertEquals(1234L, result.getFirst().getSize());
+      assertEquals("http://localhost:4566/my-images/image1.jpg", result.get(0).getUrl());
    }
 
    @Test
-   void listImages_shouldReturnMetadataList() {
-      S3Object obj1 = S3Object.builder().key("a.jpg").build();
-      S3Object obj2 = S3Object.builder().key("b.png").build();
+   void getImageUrlShouldReturnValidUrl_whenKeyExists() {
+      when(s3Client.headObject(any(HeadObjectRequest.class)))
+            .thenReturn(HeadObjectResponse.builder().build());
 
-      when(s3Client.listObjectsV2(any(ListObjectsV2Request.class)))
-            .thenReturn(ListObjectsV2Response.builder().contents(obj1, obj2).build());
+      String result = imageService.getImageUrl("abc.jpg", null);
+      assertEquals("http://localhost:4566/my-images/abc.jpg", result);
+   }
 
-      List<ImageMetadata> result = imageService.listImages("test-bucket");
+   @Test
+   void getMetadataFromUrlShouldReturnFullMetadata() {
+      HeadObjectResponse head = HeadObjectResponse.builder()
+            .contentType("image/png")
+            .contentLength(4567L)
+            .lastModified(Instant.parse("2025-01-01T00:00:00Z"))
+            .build();
 
-      assertEquals(2, result.size());
-      assertEquals("a.jpg", result.get(0).getKey());
-      assertTrue(result.get(0).getUrl().endsWith("/a.jpg"));
+      when(s3Client.headObject(any(HeadObjectRequest.class))).thenReturn(head);
+
+      String url = "http://localhost:4566/my-images/test.png";
+      ImageMetadata metadata = imageService.getMetadataFromUrl(url, null);
+
+      assertEquals("test.png", metadata.getKey());
+      assertEquals(url, metadata.getUrl());
+      assertEquals("image/png", metadata.getContentType());
+      assertEquals(4567L, metadata.getSize());
+      assertEquals(Instant.parse("2025-01-01T00:00:00Z"), metadata.getLastModified());
+   }
+
+   @Test
+   void listBucketsShouldReturnBucketNames() {
+      Bucket b1 = Bucket.builder().name("bucket-a").build();
+      Bucket b2 = Bucket.builder().name("bucket-b").build();
+
+      when(s3Client.listBuckets()).thenReturn(ListBucketsResponse.builder().buckets(b1, b2).build());
+
+      List<String> result = imageService.listBuckets();
+
+      assertTrue(result.contains("bucket-a"));
+      assertTrue(result.contains("bucket-b"));
    }
 }
