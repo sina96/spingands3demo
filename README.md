@@ -1,4 +1,4 @@
-# 🖼️ Spring Boot S3 Image CRUD API ( using LocalStack)
+# 🖼️ Spring Boot S3 Image CRUD API (using LocalStack)
 
 This project demonstrates how to build a full **image storage CRUD API** for using
 AWS S3 SDK locally using:
