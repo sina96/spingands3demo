@@ -46,7 +46,7 @@ cd springboot-s3-demo
 ```
 
 ### 2. Start LocalStack & Create Bucket
-(see the file)
+(see the `start-localstack.sh` file)
 
 ```bash
 chmod +x start-localstack.sh
@@ -72,15 +72,18 @@ Visit Swagger UI:
 ```bash
 http://localhost:8080/swagger-ui.html
 ```
+| Method | Path                     | Description                                     | Query Params                          |
+|--------|--------------------------|-------------------------------------------------|---------------------------------------|
+| POST   | `/images/upload`         | Upload an image file                            | `bucket` (optional)                   |
+| GET    | `/images`                | List all image metadata (key, url, etc)         | `bucket` (optional)                   |
+| GET    | `/images/{key}`          | Get image as byte stream                        | `bucket` (optional)                   |
+| GET    | `/images/{key}/url`      | Get S3 URL for image                            | `bucket` (optional)                   |
+| GET    | `/images/{key}/metadata` | Get full image metadata (content type, size...) | `bucket` (optional)                   |
+| GET    | `/images/metadata`       | Get image metadata from full image URL          | `bucket` (optional), `url` (required) |
+| PUT    | `/images/{key}`          | Replace/update an existing image                | `bucket` (optional)                   |
+| DELETE | `/images/{key}`          | Delete an image                                 | `bucket` (optional)                   |
+| GET    | `/images/buckets`        | List all available S3 buckets                   | *(none)*                              |
 
-| Method | Path               | Description                |
-|--------|--------------------|----------------------------|
-| POST   | /images/upload     | 	Upload an image file      |
-| GET    | /images            | List all image keys + URLs |
-| GET    | /images/{key}      | 	Get image as byte stream  |
-| GET    | 	/images/{key}/url | 	Redirect to S3 image URL  |
-| DELETE | /images/{key}      | 	Delete an image           |
-| PUT    | 	/images/{key}     | 	Replace/update an image   |
 
 
 
