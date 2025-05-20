@@ -14,10 +14,13 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
@@ -134,19 +137,33 @@ public class ImageService {
       return response.contents().stream()
             .map(s3Object -> new ImageMetadata(
                   s3Object.key(),
-                  getImageUrl(s3Object.key(), bucket)
+                  getImageUrl(s3Object.key(), bucket),
+                  null,
+                  s3Object.size(),
+                  s3Object.lastModified()
             ))
-            .collect(Collectors.toList());
+            .toList();
    }
 
    public String getImageUrl(String key, String bucketOverride) {
       String bucket = resolveBucket(bucketOverride);
+
+      // Optional: Validate object exists
+      try {
+         HeadObjectRequest headRequest = HeadObjectRequest.builder()
+               .bucket(bucket)
+               .key(key)
+               .build();
+         s3Client.headObject(headRequest);
+      } catch (NoSuchKeyException e) {
+         throw new IllegalArgumentException("No such object with key: " + key);
+      }
+
       return String.format("%s/%s/%s", endpoint, bucket, key);
    }
 
    public ImageMetadata getMetadataFromUrl(String url, String bucketOverride) {
       String bucket = resolveBucket(bucketOverride);
-      // Remove prefix like: http://localhost:4566/my-images/
       String prefix = String.format("%s/%s/", endpoint, bucket);
 
       if (!url.startsWith(prefix)) {
@@ -154,7 +171,21 @@ public class ImageService {
       }
 
       String key = url.substring(prefix.length());
-      return new ImageMetadata(key, url);
+
+      HeadObjectRequest headRequest = HeadObjectRequest.builder()
+            .bucket(bucket)
+            .key(key)
+            .build();
+
+      HeadObjectResponse headResponse = s3Client.headObject(headRequest);
+
+      return new ImageMetadata(
+            key,
+            url,
+            headResponse.contentType(),
+            headResponse.contentLength(),
+            headResponse.lastModified()
+      );
    }
 
    public List<String> listBuckets() {

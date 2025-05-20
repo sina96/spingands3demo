@@ -48,6 +48,7 @@ public class ImageController {
       return ResponseEntity.status(302).header("Location", url).build();
    }
 
+   @Operation(summary = "Get image by key via json url")
    @GetMapping("/{key}/url-json")
    public ResponseEntity<Map<String, String>> getImageUrlJson(@PathVariable String key) {
       String url = imageService.getImageUrl(key, null);
